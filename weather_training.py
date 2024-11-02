@@ -8,6 +8,9 @@ import torch.nn as nn
 import torch.nn.functional as F
 from tqdm import tqdm
 from torch.utils.tensorboard import SummaryWriter
+import wandb
+import matplotlib.pyplot as plt
+from unet import UNet
 
 class WeatherDataset(Dataset):
     def __init__(self, data_files, transform=None):
@@ -54,6 +57,7 @@ def train_model(model, dataloader, num_epochs=10000, save_path='/content/drive/M
             loss.backward()
             optimizer.step()
             epoch_loss += loss.item()
+            wandb.log({ "loss": loss.item()})
         
         avg_loss = epoch_loss / len(dataloader)
         loss_history.append(avg_loss)  # Store loss for this epoch
@@ -75,23 +79,28 @@ def train_model(model, dataloader, num_epochs=10000, save_path='/content/drive/M
     writer.close()  # Close the TensorBoard writer
 
 # Visualization Function for Bottleneck
-def visualize_bottleneck(dataloader, model):
-    model.eval()
-    bottleneck_representations = []
-    with torch.no_grad():
-        for inputs, _ in dataloader:
-            outputs, bottleneck = model(inputs)  # Ensure the model's forward method returns both
-            bottleneck_representations.append(bottleneck.cpu().numpy())
-    bottleneck_representations = np.concatenate(bottleneck_representations, axis=0).reshape(-1, 128)
-    pca = PCA(n_components=2)
-    bottleneck_2d = pca.fit_transform(bottleneck_representations)
-    plt.scatter(bottleneck_2d[:, 0], bottleneck_2d[:, 1], alpha=0.6, c='blue')
-    plt.title("2D PCA of Bottleneck Representations")
-    plt.show()
+# def visualize_bottleneck(dataloader, model):
+#     model.eval()
+#     bottleneck_representations = []
+#     with torch.no_grad():
+#         for inputs, _ in dataloader:
+#             outputs, bottleneck = model(inputs)  # Ensure the model's forward method returns both
+#             bottleneck_representations.append(bottleneck.cpu().numpy())
+#     bottleneck_representations = np.concatenate(bottleneck_representations, axis=0).reshape(-1, 128)
+#     pca = PCA(n_components=2)
+#     bottleneck_2d = pca.fit_transform(bottleneck_representations)
+#     plt.scatter(bottleneck_2d[:, 0], bottleneck_2d[:, 1], alpha=0.6, c='blue')
+#     plt.title("2D PCA of Bottleneck Representations")
+#     plt.show()
 
 # Main Execution
 if __name__ == "__main__":
     # Mount Google Drive
+
+    wandb.init(
+        # set the wandb project where this run will be logged
+        project="weather_forecast",
+    )
     
     file_dir = '/content/drive/MyDrive/Weather_Model/CFD_Subset'
     data_files = [os.path.join(file_dir, f) for f in os.listdir(file_dir) if f.endswith(".nrrd")]
@@ -118,4 +127,4 @@ if __name__ == "__main__":
 
     # Start training from the correct epoch
     train_model(model, dataloader, num_epochs=10000, save_path=checkpoint_path)  # Pass `start_epoch`
-    visualize_bottleneck(dataloader, model)
+    # visualize_bottleneck(dataloader, model)
