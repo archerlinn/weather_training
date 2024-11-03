@@ -43,7 +43,7 @@ def train_model(model, dataloader, num_epochs=10000, save_path='/content/drive/M
     loss_history = []  # To store loss values for plotting
 
     # Initialize TensorBoard writer
-    writer = SummaryWriter()
+    #writer = SummaryWriter()
 
     for epoch in range(1, num_epochs + 1):
         model.train()
@@ -63,7 +63,7 @@ def train_model(model, dataloader, num_epochs=10000, save_path='/content/drive/M
         loss_history.append(avg_loss)  # Store loss for this epoch
 
         # Log average loss to TensorBoard
-        writer.add_scalar("Loss/train", avg_loss, epoch)
+        #writer.add_scalar("Loss/train", avg_loss, epoch)
 
         # Save the model weights as "model_weights_epoch_latest.pth"
         torch.save({
@@ -76,7 +76,7 @@ def train_model(model, dataloader, num_epochs=10000, save_path='/content/drive/M
         print(f"Model weights saved at {save_path}")
 
     print("Training complete!")
-    writer.close()  # Close the TensorBoard writer
+    #writer.close()  # Close the TensorBoard writer
 
 # Visualization Function for Bottleneck
 # def visualize_bottleneck(dataloader, model):
