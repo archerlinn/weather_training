@@ -1,16 +1,18 @@
 import os
 import torch
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import Dataset, DataLoader, random_split
 import nrrd
 import numpy as np
 import torch.optim as optim
 import torch.nn as nn
 import torch.nn.functional as F
 from tqdm import tqdm
-from torch.utils.tensorboard import SummaryWriter
 import wandb
 import matplotlib.pyplot as plt
 from unet import UNet
+
+DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
+
 
 class WeatherDataset(Dataset):
     def __init__(self, data_files, transform=None):
@@ -21,110 +23,104 @@ class WeatherDataset(Dataset):
         return len(self.data_files)
 
     def __getitem__(self, idx):
-        data, _ = nrrd.read(self.data_files[idx])  # Load grid data from .nrrd file
-        data = data[:, :, 0]  # Assuming we want the first channel
-
-        # Normalize angular velocity data without resizing
+        data, _ = nrrd.read(self.data_files[idx])
+        data = data[:, :, 0]
+        # Normalizing data to [0, 1]
         data_min, data_max = np.min(data), np.max(data)
-        data = (data - data_min) / (data_max - data_min)  # Normalize to 0-1 range
-        data = torch.tensor(data, dtype=torch.float32).unsqueeze(0)  # Add channel dimension
-
-        if self.transform:
-            data = self.transform(data)
-
+        data = (data - data_min) / (data_max - data_min)
+        data = torch.tensor(data, dtype=torch.float32).unsqueeze(0)
         target = data
         return data, target
 
-# Training Function with TensorBoard logging
-def train_model(model, dataloader, num_epochs=10000, save_path='/content/drive/MyDrive/Weather_Model/model_weights_epoch_latest.pth'):
+def plot_prediction_vs_ground_truth(prediction, ground_truth):
+    fig, axes = plt.subplots(1, 2, figsize=(10, 5))
+    axes[0].imshow(ground_truth.squeeze().cpu().numpy(), cmap='viridis')
+    axes[0].set_title("Ground Truth")
+    axes[1].imshow(prediction.squeeze().cpu().numpy(), cmap='viridis')
+    axes[1].set_title("Prediction")
+    plt.show()
+
+def train_model(model, train_loader, val_loader, num_epochs=10000, save_path='/Users/archer/Downloads/weather_data/model_weights_epoch_latest.pth'):
     print("Training the model...")
     optimizer = optim.Adam(model.parameters(), lr=0.001)
     criterion = nn.MSELoss()
-    loss_history = []  # To store loss values for plotting
-
-    # Initialize TensorBoard writer
-    writer = SummaryWriter()
+    loss_history = []
+    val_loss_history = []
 
     for epoch in range(1, num_epochs + 1):
         model.train()
         epoch_loss = 0
-        for inputs, targets in tqdm(dataloader):
-            inputs, targets = inputs.to('cuda'), targets.to('cuda')
+        for inputs, targets in tqdm(train_loader):
+            inputs, targets = inputs.to(DEVICE), targets.to(DEVICE)
             optimizer.zero_grad()
-            outputs, _ = model(inputs)  # Unpack only `outputs`
+            outputs, _ = model(inputs)
             outputs = F.interpolate(outputs, size=targets.shape[2:], mode='bilinear', align_corners=False)
             loss = criterion(outputs, targets)
             loss.backward()
             optimizer.step()
             epoch_loss += loss.item()
-            wandb.log({ "loss": loss.item()})
         
-        avg_loss = epoch_loss / len(dataloader)
-        loss_history.append(avg_loss)  # Store loss for this epoch
+        avg_loss = epoch_loss / len(train_loader)
+        loss_history.append(avg_loss)
 
-        # Log average loss to TensorBoard
-        writer.add_scalar("Loss/train", avg_loss, epoch)
+        # Validation phase
+        model.eval()
+        val_loss = 0
+        with torch.no_grad():
+            for val_inputs, val_targets in val_loader:
+                val_inputs, val_targets = val_inputs.to(DEVICE), val_targets.to(DEVICE)
+                val_outputs, _ = model(val_inputs)
+                val_outputs = F.interpolate(val_outputs, size=val_targets.shape[2:], mode='bilinear', align_corners=False)
+                loss = criterion(val_outputs, val_targets)
+                val_loss += loss.item()
+                
+                # Plot prediction vs ground truth for inspection
+                plot_prediction_vs_ground_truth(val_outputs[0], val_targets[0])
 
-        # Save the model weights as "model_weights_epoch_latest.pth"
+        avg_val_loss = val_loss / len(val_loader)
+        val_loss_history.append(avg_val_loss)
+
+        wandb.log({"train_loss": avg_loss, "val_loss": avg_val_loss})
+
         torch.save({
             'epoch': epoch,
             'model_state_dict': model.state_dict(),
             'optimizer_state_dict': optimizer.state_dict(),
-            'loss': avg_loss,
+            'train_loss': avg_loss,
+            'val_loss': avg_val_loss,
         }, save_path)
-        print(f"Epoch [{epoch}/{num_epochs}], Loss: {avg_loss}")
-        print(f"Model weights saved at {save_path}")
+        print(f"Epoch [{epoch}/{num_epochs}], Train Loss: {avg_loss}, Val Loss: {avg_val_loss}")
 
     print("Training complete!")
-    writer.close()  # Close the TensorBoard writer
-
-# Visualization Function for Bottleneck
-# def visualize_bottleneck(dataloader, model):
-#     model.eval()
-#     bottleneck_representations = []
-#     with torch.no_grad():
-#         for inputs, _ in dataloader:
-#             outputs, bottleneck = model(inputs)  # Ensure the model's forward method returns both
-#             bottleneck_representations.append(bottleneck.cpu().numpy())
-#     bottleneck_representations = np.concatenate(bottleneck_representations, axis=0).reshape(-1, 128)
-#     pca = PCA(n_components=2)
-#     bottleneck_2d = pca.fit_transform(bottleneck_representations)
-#     plt.scatter(bottleneck_2d[:, 0], bottleneck_2d[:, 1], alpha=0.6, c='blue')
-#     plt.title("2D PCA of Bottleneck Representations")
-#     plt.show()
 
 # Main Execution
 if __name__ == "__main__":
-    # Mount Google Drive
+    wandb.init(project="weather_forecast")
 
-    wandb.init(
-        # set the wandb project where this run will be logged
-        project="weather_forecast",
-    )
-    
-    file_dir = '/content/drive/MyDrive/Weather_Model/CFD_Subset'
+    file_dir = '/Users/archer/Downloads/weather_data'
     data_files = [os.path.join(file_dir, f) for f in os.listdir(file_dir) if f.endswith(".nrrd")]
     dataset = WeatherDataset(data_files=data_files)
-    dataloader = DataLoader(dataset, batch_size=1, shuffle=True)
 
-    model = UNet(in_channels=1, out_channels=1)  # Initialize U-Net model
-    model = model.to('cuda')  # Move the model to GPU if available
+    # Split the dataset into 80% training and 20% validation
+    train_size = int(0.8 * len(dataset))
+    val_size = len(dataset) - train_size
+    train_dataset, val_dataset = random_split(dataset, [train_size, val_size])
 
-    # Initialize the optimizer after the model is created
-    optimizer = optim.Adam(model.parameters(), lr=0.001)
+    train_loader = DataLoader(train_dataset, batch_size=1, shuffle=True)
+    val_loader = DataLoader(val_dataset, batch_size=1, shuffle=False)
+
+    model = UNet(in_channels=1, out_channels=1)
+    model = model.to(DEVICE)
 
     # Load the latest checkpoint if available
-    checkpoint_path = '/content/drive/MyDrive/Weather_Model/model_weights_epoch_latest.pth'
+    checkpoint_path = '/Users/archer/Downloads/weather_data/model_weights_epoch_latest.pth'
     if os.path.exists(checkpoint_path):
         print(f"Loading model weights from {checkpoint_path}")
-        checkpoint = torch.load(checkpoint_path, weights_only=False) 
+        checkpoint = torch.load(checkpoint_path)
         model.load_state_dict(checkpoint['model_state_dict'])
-        optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-        start_epoch = checkpoint['epoch'] + 1  # Resume from the next epoch
+        start_epoch = checkpoint['epoch'] + 1
     else:
         print("No checkpoint found, starting training from scratch.")
         start_epoch = 1
 
-    # Start training from the correct epoch
-    train_model(model, dataloader, num_epochs=10000, save_path=checkpoint_path)  # Pass `start_epoch`
-    # visualize_bottleneck(dataloader, model)
+    train_model(model, train_loader, val_loader, num_epochs=10000, save_path=checkpoint_path)
