@@ -1,0 +1,4 @@
+CFD_Subset
+wandb
+__pycache__
+*.pth
