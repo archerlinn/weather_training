@@ -71,5 +71,5 @@ This project integrates Weights & Biases for logging loss and training metrics. 
 
 1. Log in using `wandb.login()`
 2. View experiment results at:
-   - [Project Dashboard]([https://wandb.ai/your-username/weather_forecast](https://wandb.ai/archerlin0530-purdue-university/weather_forecast?nw=nwuserarcherlin0530))
+   - [Project Dashboard](https://wandb.ai/archerlin0530-purdue-university/weather_forecast?nw=nwuserarcherlin0530)
 
