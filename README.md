@@ -73,19 +73,3 @@ This project integrates Weights & Biases for logging loss and training metrics. 
 2. View experiment results at:
    - [Project Dashboard](https://wandb.ai/your-username/weather_forecast)
 
-## File Structure
-```
-|
-├── train.py       # Main training script
-├── dataset.py     # Data processing pipeline
-├── unet.py        # Model implementation
-├── utils.py       # Utility functions
-├── requirements.txt
-```
-
-## Contributors
-- **Archer Lin** (Lead Developer & Researcher)
-
-## License
-MIT License
-
